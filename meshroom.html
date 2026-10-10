@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>meshroom 🍄 - Decentralized P2P Audio Broadcasting</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- PeerJS local bundle -->
+    <script src="peerjs.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .pulse-ring {
+            box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+            animation: pulse-green 2s infinite;
+        }
+        @keyframes pulse-green {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(74, 222, 128, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col selection:bg-emerald-500 selection:text-white">
+
+    <!-- Registration Modal -->
+    <div id="registration-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6 text-center">
+            <div class="inline-flex bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-3xl text-emerald-400 mb-2">
+                <i data-lucide="radio" class="w-10 h-10"></i>
+            </div>
+            <div>
+                <h2 class="text-2xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
+                    meshroom <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium border border-emerald-500/30">v1.0</span>
+                </h2>
+                <p class="text-xs text-slate-400 mt-1">Set your peer name to register and join the decentralized audio network.</p>
+            </div>
+
+            <div class="space-y-4 text-left">
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1.5">Your Peer Name / ID</label>
+                    <input type="text" id="peer-name-input" placeholder="e.g. alice, dj-sound, node-alpha" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors font-mono" autofocus onkeypress="if(event.key==='Enter') registerPeer()">
+                    <p id="reg-error" class="text-rose-400 text-xs mt-1.5 hidden"></p>
+                </div>
+                <button onclick="registerPeer()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3.5 rounded-2xl transition-all shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 text-sm">
+                    <i data-lucide="zap" class="w-4 h-4"></i> Enter Meshroom
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-40 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="bg-emerald-500/10 border border-emerald-500/30 p-2.5 rounded-2xl text-emerald-400">
+                <i data-lucide="radio" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight flex items-center gap-2">
+                    meshroom <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium border border-emerald-500/30">P2P Audio Mesh</span>
+                </h1>
+                <p class="text-xs text-slate-400">Decentralized audio broadcasting & mesh network</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-4">
+            <!-- Connection Status -->
+            <div id="connection-status" class="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-medium">
+                <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                <span id="status-text" class="text-slate-300">Registered</span>
+            </div>
+
+            <!-- My Peer Name / ID Box -->
+            <div class="hidden sm:flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3.5 py-1.5 rounded-xl text-xs">
+                <span class="text-slate-400">Name:</span>
+                <span id="header-my-name" class="font-mono font-semibold text-emerald-400 select-all">-</span>
+                <button onclick="copyMyId()" class="text-slate-400 hover:text-white transition-colors" title="Copy ID">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Left Sidebar: Connect & Active Connections / Audio Recipients -->
+        <div class="space-y-6">
+            <!-- Connect Panel -->
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur">
+                <h2 class="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+                    <i data-lucide="user-plus" class="w-4 h-4 text-emerald-400"></i> Connect to Peer Name
+                </h2>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Target Peer Name</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="target-id-input" placeholder="Enter peer name..." class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors font-mono">
+                            <button onclick="connectToPeer()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-1.5 shadow-lg shadow-emerald-600/20">
+                                <i data-lucide="link" class="w-4 h-4"></i> Connect
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Connections & Audio Recipients -->
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                        <i data-lucide="users" class="w-4 h-4 text-emerald-400"></i> Connections & Audio Recipients
+                    </h2>
+                    <span id="active-count" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">0</span>
+                </div>
+                <p class="text-xs text-slate-400 mb-3">Manage who receives your audio broadcast and view connections.</p>
+                <div id="active-peers-list" class="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    <div class="text-center py-6 text-slate-500 text-xs italic">
+                        No active connections yet.<br>Connect to someone using their peer name.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right / Center: Audio Broadcasting Center & Mesh Network & Chat -->
+        <div class="lg:col-span-2 space-y-6 flex flex-col">
+            
+            <!-- Audio Broadcasting Control Center -->
+            <div class="bg-gradient-to-br from-slate-900 to-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between relative overflow-hidden">
+                <div class="absolute -right-10 -top-10 w-40 h-40 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <i data-lucide="mic" class="w-5 h-5 text-emerald-400"></i> Audio Broadcasting
+                        </h2>
+                        <p class="text-xs text-slate-400" id="broadcast-status-label">Broadcast your mic to connected peers</p>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button onclick="toggleBroadcast()" id="broadcast-btn" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl transition-colors text-xs font-medium flex items-center gap-2 shadow-lg shadow-emerald-600/20">
+                            <i data-lucide="radio" class="w-4 h-4"></i> <span id="broadcast-btn-text">Start Broadcasting</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Incoming Audio Streams from Others -->
+                <div>
+                    <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Incoming Audio Feeds (Listening to)</h3>
+                    <div id="audio-streams-container" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 flex items-center text-slate-500 text-xs italic">
+                            No incoming audio feeds.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hidden audio container -->
+                <div id="remote-audio-container" class="hidden"></div>
+            </div>
+
+            <!-- Mesh Network (Peers of Peers) -->
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                        <i data-lucide="share-2" class="w-4 h-4 text-emerald-400"></i> Mesh Network (Peers of Peers)
+                    </h2>
+                    <span id="mesh-count" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">0</span>
+                </div>
+                <p class="text-xs text-slate-400 mb-3">See who your peers are connected to and connect there instantly.</p>
+                <div id="mesh-peers-list" class="space-y-2.5 max-h-48 overflow-y-auto pr-1">
+                    <div class="text-center py-6 text-slate-500 text-xs italic">
+                        No mesh peers discovered yet.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activity & Messages Log -->
+            <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur flex-1 flex flex-col">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                        <i data-lucide="message-square" class="w-4 h-4 text-emerald-400"></i> Activity & Messages
+                    </h2>
+                    <button onclick="clearLog()" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">Clear</button>
+                </div>
+
+                <div id="log-container" class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 h-36 overflow-y-auto space-y-2 font-mono text-xs mb-3 flex-1">
+                    <div class="text-slate-500">[System] Welcome to meshroom. Please register your peer name.</div>
+                </div>
+
+                <div class="flex gap-2">
+                    <input type="text" id="chat-input" placeholder="Type a broadcast message to all connected peers..." onkeypress="if(event.key==='Enter') sendMessage()" class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors">
+                    <button onclick="sendMessage()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-medium transition-colors flex items-center gap-1">
+                        <i data-lucide="send" class="w-3.5 h-3.5"></i> Send
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+        meshroom 🍄 • Decentralized Audio Broadcasting & Mesh Network
+    </footer>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-slate-900 border border-slate-800 text-slate-200 px-4 py-3 rounded-2xl shadow-2xl transform translate-y-20 opacity-0 transition-all duration-300 flex items-center gap-3 z-50">
+        <div id="toast-icon" class="text-emerald-400">
+            <i data-lucide="check-circle" class="w-5 h-5"></i>
+        </div>
+        <div id="toast-msg" class="text-xs font-medium">Notification message</div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        let peer = null;
+        let myName = null;
+        const activeConnections = new Map(); // peerId -> { conn, sendAudio: boolean }
+        const activeCalls = new Map();       // peerId -> MediaConnection (incoming calls from others)
+        const outgoingCalls = new Map();     // peerId -> MediaConnection (outgoing calls we initiated to stream audio)
+        const discoveredPeers = new Map();   // peerId -> Set of sourcePeerIds
+        let localStream = null;
+        let isBroadcasting = false;
+
+        // Step 1: Register Peer Name and connect to PeerJS server
+        function registerPeer() {
+            const input = document.getElementById('peer-name-input').value.trim();
+            const errEl = document.getElementById('reg-error');
+
+            if (!input) {
+                errEl.textContent = 'Please enter a valid peer name.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            if (!/^[a-zA-Z0-9_-]+$/.test(input)) {
+                errEl.textContent = 'Peer name can only contain letters, numbers, hyphens, and underscores.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            errEl.classList.add('hidden');
+            myName = input;
+
+            logSystem(`Registering peer name: ${myName}...`);
+
+            // Initialize Peer with custom ID (peer name)
+            peer = new Peer(myName, { debug: 1 });
+
+            peer.on('open', (id) => {
+                document.getElementById('header-my-name').textContent = id;
+                document.getElementById('status-dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-ring';
+                document.getElementById('status-text').textContent = 'Online & Registered';
+                
+                // Hide modal
+                document.getElementById('registration-modal').classList.add('hidden');
+                logSystem(`Successfully registered as "${id}" on server.`);
+                showToast(`Registered successfully as ${id}!`);
+            });
+
+            peer.on('connection', (conn) => {
+                setupDataConnection(conn);
+                logSystem(`Incoming connection from ${conn.peer}`);
+            });
+
+            peer.on('call', async (call) => {
+                logSystem(`Incoming voice call from ${call.peer}`);
+                // Answer incoming call with our local stream if broadcasting
+                call.answer(localStream || undefined);
+                setupIncomingCall(call);
+            });
+
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    errEl.textContent = `Peer name "${myName}" is already taken. Please choose another.`;
+                    errEl.classList.remove('hidden');
+                    logSystem(`Registration failed: ID "${myName}" taken.`);
+                } else {
+                    errEl.textContent = `Error: ${err.message}`;
+                    errEl.classList.remove('hidden');
+                    logSystem(`Peer error: ${err.type} - ${err.message}`);
+                }
+            });
+        }
+
+        // Connect to a peer by name
+        function connectToPeer() {
+            const targetId = document.getElementById('target-id-input').value.trim();
+            if (!targetId) {
+                showToast('Please enter a target peer name', 'error');
+                return;
+            }
+            if (targetId === myName) {
+                showToast('Cannot connect to your own peer name', 'error');
+                return;
+            }
+            if (activeConnections.has(targetId)) {
+                showToast('Already connected to this peer', 'error');
+                return;
+            }
+
+            logSystem(`Connecting to peer: ${targetId}...`);
+            const conn = peer.connect(targetId);
+            setupDataConnection(conn);
+
+            document.getElementById('target-id-input').value = '';
+        }
+
+        // Setup Data Connection handlers
+        function setupDataConnection(conn) {
+            conn.on('open', () => {
+                // Default: sendAudio is true for new connection
+                activeConnections.set(conn.peer, { conn, sendAudio: true });
+                logSystem(`Data connection established with ${conn.peer}`);
+                showToast(`Connected to ${conn.peer}`);
+                updateActivePeersUI();
+
+                // If we are currently broadcasting, call this new peer immediately to send our audio
+                if (isBroadcasting && localStream) {
+                    const call = peer.call(conn.peer, localStream);
+                    outgoingCalls.set(conn.peer, call);
+                    logSystem(`Streaming audio broadcast to ${conn.peer}`);
+                }
+
+                broadcastPeerList();
+            });
+
+            conn.on('data', (data) => {
+                handlePeerData(conn.peer, data);
+            });
+
+            conn.on('close', () => {
+                cleanupPeerConnection(conn.peer);
+                logSystem(`Connection closed with ${conn.peer}`);
+                showToast(`Disconnected from ${conn.peer}`);
+            });
+
+            conn.on('error', (err) => {
+                logSystem(`Connection error with ${conn.peer}: ${err}`);
+            });
+        }
+
+        // Setup incoming media call (listening to others)
+        function setupIncomingCall(call) {
+            call.on('stream', (remoteStream) => {
+                logSystem(`Receiving audio stream from ${call.peer}`);
+                playRemoteAudio(call.peer, remoteStream);
+                updateIncomingAudioUI();
+            });
+
+            call.on('close', () => {
+                removeRemoteAudio(call.peer);
+                updateIncomingAudioUI();
+            });
+        }
+
+        // Toggle Audio Broadcasting
+        async function toggleBroadcast() {
+            const btn = document.getElementById('broadcast-btn');
+            const btnText = document.getElementById('broadcast-btn-text');
+            const statusLabel = document.getElementById('broadcast-status-label');
+
+            if (!isBroadcasting) {
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    isBroadcasting = true;
+                    btn.className = 'bg-rose-600 hover:bg-rose-500 text-white px-4 py-2.5 rounded-xl transition-colors text-xs font-medium flex items-center gap-2 shadow-lg shadow-rose-600/20';
+                    btnText.textContent = 'Stop Broadcasting';
+                    statusLabel.textContent = 'Broadcasting audio to allowed recipients';
+                    logSystem('Started microphone audio broadcast.');
+                    showToast('Broadcasting started');
+
+                    // Call all connected peers where sendAudio is true
+                    activeConnections.forEach((val, peerId) => {
+                        if (val.sendAudio) {
+                            const call = peer.call(peerId, localStream);
+                            outgoingCalls.set(peerId, call);
+                            logSystem(`Streaming audio broadcast to ${peerId}`);
+                        }
+                    });
+                } catch (err) {
+                    logSystem(`Failed to access microphone: ${err.message}`);
+                    showToast(`Microphone access failed: ${err.message}`, 'error');
+                }
+            } else {
+                stopBroadcast();
+            }
+        }
+
+        function stopBroadcast() {
+            isBroadcasting = false;
+            // Stop outgoing calls / audio tracks
+            outgoingCalls.forEach(call => call.close());
+            outgoingCalls.clear();
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            const btn = document.getElementById('broadcast-btn');
+            const btnText = document.getElementById('broadcast-btn-text');
+            const statusLabel = document.getElementById('broadcast-status-label');
+
+            btn.className = 'bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl transition-colors text-xs font-medium flex items-center gap-2 shadow-lg shadow-emerald-600/20';
+            btnText.textContent = 'Start Broadcasting';
+            statusLabel.textContent = 'Broadcast your mic to connected peers';
+            logSystem('Stopped microphone audio broadcast.');
+            showToast('Broadcasting stopped');
+        }
+
+        // Toggle whether a specific peer receives our audio broadcast
+        function toggleSendAudioToPeer(peerId) {
+            const entry = activeConnections.get(peerId);
+            if (!entry) return;
+
+            entry.sendAudio = !entry.sendAudio;
+            activeConnections.set(peerId, entry);
+
+            if (entry.sendAudio) {
+                logSystem(`Enabled audio broadcasting to ${peerId}`);
+                showToast(`Enabling audio to ${peerId}`);
+                if (isBroadcasting && localStream) {
+                    const call = peer.call(peerId, localStream);
+                    outgoingCalls.set(peerId, call);
+                }
+            } else {
+                logSystem(`Disabled audio broadcasting to ${peerId}`);
+                showToast(`Removed ${peerId} from audio recipients`);
+                if (outgoingCalls.has(peerId)) {
+                    outgoingCalls.get(peerId).close();
+                    outgoingCalls.delete(peerId);
+                }
+            }
+            updateActivePeersUI();
+        }
+
+        // Handle peer data (mesh discovery & chat)
+        function handlePeerData(fromPeer, data) {
+            if (typeof data === 'object' && data !== null) {
+                if (data.type === 'PEER_LIST') {
+                    const peers = data.peers || [];
+                    peers.forEach(peerId => {
+                        if (peerId !== myName && !activeConnections.has(peerId)) {
+                            if (!discoveredPeers.has(peerId)) {
+                                discoveredPeers.set(peerId, new Set());
+                            }
+                            discoveredPeers.get(peerId).add(fromPeer);
+                        }
+                    });
+                    updateMeshPeersUI();
+                } else if (data.type === 'CHAT') {
+                    logChat(data.sender || fromPeer, data.text);
+                }
+            } else {
+                logChat(fromPeer, data);
+            }
+        }
+
+        function broadcastPeerList() {
+            const connectedPeerIds = Array.from(activeConnections.keys());
+            const payload = {
+                type: 'PEER_LIST',
+                peers: [...connectedPeerIds, myName]
+            };
+            activeConnections.forEach(val => {
+                if (val.conn.open) {
+                    val.conn.send(payload);
+                }
+            });
+        }
+
+        // UI Updates
+        function updateActivePeersUI() {
+            const container = document.getElementById('active-peers-list');
+            document.getElementById('active-count').textContent = activeConnections.size;
+
+            if (activeConnections.size === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 text-slate-500 text-xs italic">
+                        No active connections yet.<br>Connect to someone using their peer name.
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            activeConnections.forEach((val, peerId) => {
+                html += `
+                    <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between">
+                        <div class="flex items-center space-x-2.5 overflow-hidden pr-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                            <span class="font-mono text-xs text-slate-200 truncate" title="${peerId}">${peerId}</span>
+                        </div>
+                        <div class="flex items-center space-x-2 shrink-0">
+                            <button onclick="toggleSendAudioToPeer('${peerId}')" class="px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${val.sendAudio ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}" title="Toggle sending your audio to this recipient">
+                                ${val.sendAudio ? 'Sending Audio' : 'Audio Muted'}
+                            </button>
+                            <button onclick="disconnectPeer('${peerId}')" class="text-slate-500 hover:text-rose-400 p-1 transition-colors" title="Disconnect">
+                                <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+            lucide.createIcons();
+            broadcastPeerList();
+        }
+
+        function updateMeshPeersUI() {
+            const container = document.getElementById('mesh-peers-list');
+            document.getElementById('mesh-count').textContent = discoveredPeers.size;
+
+            if (discoveredPeers.size === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 text-slate-500 text-xs italic">
+                        No mesh peers discovered yet.
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            discoveredPeers.forEach((sources, peerId) => {
+                const sourcesList = Array.from(sources).join(', ');
+                html += `
+                    <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between">
+                        <div class="overflow-hidden pr-2">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                                <span class="font-mono text-xs text-slate-200 truncate" title="${peerId}">${peerId}</span>
+                            </div>
+                            <p class="text-[10px] text-slate-500 mt-0.5 truncate">Via: ${sourcesList}</p>
+                        </div>
+                        <button onclick="connectToDiscoveredPeer('${peerId}')" class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shrink-0 flex items-center gap-1">
+                            <i data-lucide="link" class="w-3 h-3"></i> Connect
+                        </button>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        function updateIncomingAudioUI() {
+            const container = document.getElementById('audio-streams-container');
+            // Find peers we are receiving audio from
+            const remotePeersWithAudio = [];
+            document.querySelectorAll('#remote-audio-container audio').forEach(el => {
+                const peerId = el.id.replace('audio-', '');
+                remotePeersWithAudio.push(peerId);
+            });
+
+            if (remotePeersWithAudio.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 flex items-center text-slate-500 text-xs italic col-span-full">
+                        No incoming audio feeds.
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            remotePeersWithAudio.forEach(peerId => {
+                html += `
+                    <div class="bg-slate-950/80 border border-emerald-500/30 rounded-xl p-3 flex items-center justify-between">
+                        <div class="flex items-center space-x-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                                <i data-lucide="volume-2" class="w-4 h-4 animate-pulse"></i>
+                            </div>
+                            <span class="font-mono text-xs text-slate-200">${peerId}</span>
+                        </div>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Listening</span>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        function playRemoteAudio(peerId, stream) {
+            const container = document.getElementById('remote-audio-container');
+            let audioEl = document.getElementById(`audio-${peerId}`);
+            if (!audioEl) {
+                audioEl = document.createElement('audio');
+                audioEl.id = `audio-${peerId}`;
+                audioEl.autoplay = true;
+                container.appendChild(audioEl);
+            }
+            audioEl.srcObject = stream;
+        }
+
+        function removeRemoteAudio(peerId) {
+            const audioEl = document.getElementById(`audio-${peerId}`);
+            if (audioEl) {
+                audioEl.srcObject = null;
+                audioEl.remove();
+            }
+            updateIncomingAudioUI();
+        }
+
+        function connectToDiscoveredPeer(peerId) {
+            document.getElementById('target-id-input').value = peerId;
+            connectToPeer();
+        }
+
+        function disconnectPeer(peerId) {
+            cleanupPeerConnection(peerId);
+            updateActivePeersUI();
+            logSystem(`Disconnected from ${peerId}`);
+        }
+
+        function cleanupPeerConnection(peerId) {
+            const entry = activeConnections.get(peerId);
+            if (entry && entry.conn) {
+                entry.conn.close();
+            }
+            activeConnections.delete(peerId);
+            if (outgoingCalls.has(peerId)) {
+                outgoingCalls.get(peerId).close();
+                outgoingCalls.delete(peerId);
+            }
+            removeDiscoveredPeerSource(peerId);
+        }
+
+        function removeDiscoveredPeerSource(closedPeerId) {
+            discoveredPeers.forEach((sources, peerId) => {
+                sources.delete(closedPeerId);
+                if (sources.size === 0) {
+                    discoveredPeers.delete(peerId);
+                }
+            });
+            updateMeshPeersUI();
+        }
+
+        // Chat & Logging
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            if (activeConnections.size === 0) {
+                showToast('No active connections to send message to', 'error');
+                return;
+            }
+
+            const payload = {
+                type: 'CHAT',
+                sender: myName,
+                text: text
+            };
+
+            activeConnections.forEach(val => {
+                if (val.conn.open) val.conn.send(payload);
+            });
+
+            logChat('You', text);
+            input.value = '';
+        }
+
+        function logSystem(text) {
+            const container = document.getElementById('log-container');
+            const div = document.createElement('div');
+            div.className = 'text-slate-500';
+            div.textContent = `[System] ${text}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function logChat(sender, text) {
+            const container = document.getElementById('log-container');
+            const div = document.createElement('div');
+            const isMe = sender === 'You';
+            div.className = isMe ? 'text-emerald-400' : 'text-slate-300';
+            div.innerHTML = `<span class="font-semibold">&lt;${sender}&gt;</span> ${escapeHtml(text)}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log-container').innerHTML = '';
+        }
+
+        function copyMyId() {
+            if (!myName) return;
+            navigator.clipboard.writeText(myName);
+            showToast('Copied your peer name to clipboard!');
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-msg');
+            toastMsg.textContent = message;
+            
+            toast.className = `fixed bottom-6 right-6 bg-slate-900 border ${type === 'error' ? 'border-rose-500/50 text-rose-300' : 'border-slate-800 text-slate-200'} px-4 py-3 rounded-2xl shadow-2xl transform translate-y-0 opacity-100 transition-all duration-300 flex items-center gap-3 z-50`;
+            
+            setTimeout(() => {
+                toast.className = 'fixed bottom-6 right-6 bg-slate-900 border border-slate-800 text-slate-200 px-4 py-3 rounded-2xl shadow-2xl transform translate-y-20 opacity-0 transition-all duration-300 flex items-center gap-3 z-50';
+            }, 3000);
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+    </script>
+</body>
+</html>
